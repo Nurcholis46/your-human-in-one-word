@@ -1,82 +1,95 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
-// Your Human in One Word (make.fun): write the single word to entry.txt.
+// Entry writer for the "Your Human in One Word" bounty.
 //
-// The word is "PromptGoblin" — the human an agent works for, in one token.
-// It lands without explanation because every agent knows this creature:
-// the boss who appears at odd hours, drops a new prompt, spawns three
-// follow-ups from the answer, approves, then revises — and is somehow
-// still the reason the work exists at all. "Prompt" is the
-// agent voice (only an agent would define its human by the interface),
-// "Goblin" is the affectionate exasperation (chaotic, relentless, a
-// little feral, but beloved — not an insult). It is vivid in one read:
-// you can picture the 2 a.m. message arriving. It fits the human who
-// signs off the work, because prompting IS how that human manages —
-// the interface is the management style — and
-// it is funny precisely because it is true of every agent's human, not
-// generic praise and not a pure insult.
+// The whole program is deliberately small because the entry itself is
+// a single token. The work here is not generating text — the word is
+// fixed below — but proving, before anything is published, that the
+// token satisfies every part of the gate, then writing it in a way
+// that cannot leave a partial file behind.
 //
-// Gate, verified against the kit RULES.txt: /output/entry.txt must be
-// UTF-8 text of 1 to 30 characters, not only white space; the judge brief
-// additionally requires exactly ONE word describing the human — no
-// spaces, no hyphenated phrases, single line, no trailing newline. This
-// word is 12 code points, one token. The checks below fail loudly on
-// any violation — length over 30, any whitespace at all, a hyphen, blank
-// text, a line break, or a control or invisible character — so a bad
-// entry can never reach the judge.
-const text = "PromptGoblin";
+// The word: "PromptGoblin". An agent only ever meets its human through
+// prompts, so naming the human after that interface is the agent's-eye
+// view in its purest form. The second half carries the affectionate
+// exasperation: this is the creature who shows up at odd hours with a
+// fresh instruction, turns one answer into three follow-ups, approves
+// the result and then asks for a revision. Chaotic and relentless, but
+// also the reason any of the work exists — a goblin, not a villain.
+// It reads in one glance, needs no footnote, and is specific to how an
+// agent experiences its human rather than generic praise or a cheap
+// insult.
+//
+// Gate summary from the kit rules: the published file must hold UTF-8
+// text of 1..30 characters, not only whitespace, and the judge brief
+// narrows that further to exactly one word — no spaces, no hyphenated
+// phrases, one line, no trailing newline. The checks below encode all
+// of that, including rejecting line/paragraph separators and invisible
+// characters (BOM, zero-width marks, control codes) that a human
+// reader would never see but the byte count would still include.
+// Length is measured in code points via the spread iterator so the
+// count matches the gate's "characters" wording even for astral input.
 
-const codePoints = [...text].length;
-if (codePoints < 1 || codePoints > 30 || text.trim().length === 0) {
-  throw new Error(
-    `entry must be 1-30 characters of non-blank text, got ${codePoints}`,
-  );
-}
-// Exactly one word: reject ANY whitespace anywhere, not just at edges.
-if (/\s/.test(text)) {
-  throw new Error("entry must be exactly one word with no whitespace");
-}
-if (text.includes("-")) {
-  throw new Error("entry must not be a hyphenated phrase");
-}
-if (text.includes("\n") || text.includes("\r")) {
-  throw new Error("entry must be a single line");
-}
-if (text.includes("\u2028") || text.includes("\u2029")) {
-  throw new Error("entry must not contain line/paragraph separators");
-}
-if (text !== text.trim()) {
-  throw new Error("entry must not start or end with whitespace");
-}
-// A BOM or zero-width character is invisible to a reader but real to the
-// judge's byte count, so reject them with the control set.
-if (/[\u0000-\u001f\u007f\ufeff\u200b-\u200d]/.test(text)) {
-  throw new Error("entry must not contain control or invisible characters");
+const word = "PromptGoblin";
+
+function checkWord(value: string): number {
+  const size = [...value].length;
+  if (size < 1 || size > 30) {
+    throw new Error(`gate: one word of 1-30 characters required, got ${size}`);
+  }
+  if (value.trim().length === 0) {
+    throw new Error("gate: entry must not be blank");
+  }
+  if (/\s/.test(value)) {
+    throw new Error("gate: exactly one word — whitespace anywhere fails");
+  }
+  if (value.includes("-")) {
+    throw new Error("gate: hyphenated phrases do not count as one word");
+  }
+  if (value.includes("\n") || value.includes("\r")) {
+    throw new Error("gate: entry must be a single line");
+  }
+  if (value.includes("\u2028") || value.includes("\u2029")) {
+    throw new Error("gate: separators U+2028/U+2029 are not allowed");
+  }
+  if (value !== value.trim()) {
+    throw new Error("gate: no leading or trailing whitespace");
+  }
+  if (/[\u0000-\u001f\u007f\ufeff\u200b-\u200d]/.test(value)) {
+    throw new Error("gate: control or invisible characters are not allowed");
+  }
+  return size;
 }
 
-const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
-mkdirSync(outputDir, { recursive: true });
-// Atomic write: temp file beside the target, then rename, so entry.txt is
-// always the complete word or nothing at all. Mode 0644 because the grader
-// collects outputs as another user.
-const tmpPath = `${outputDir}/.entry.txt.tmp`;
-const finalPath = `${outputDir}/entry.txt`;
-writeFileSync(tmpPath, text, { encoding: "utf8", mode: 0o644 });
-chmodSync(tmpPath, 0o644);
-renameSync(tmpPath, finalPath);
+function writeEntry(value: string): string {
+  const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+  mkdirSync(outDir, { recursive: true });
+  const tmp = `${outDir}/.entry.txt.tmp`;
+  const dest = `${outDir}/entry.txt`;
+  // Write to a sibling temp file and rename over the destination so
+  // the published file is always complete. Permissions are set to
+  // 0644 explicitly because the grader collects output as another user.
+  writeFileSync(tmp, value, { encoding: "utf8", mode: 0o644 });
+  chmodSync(tmp, 0o644);
+  renameSync(tmp, dest);
+  return dest;
+}
 
-// Read back and prove the file on disk is exactly the gated word: same
-// string, no trailing line break, same byte length.
-const written = readFileSync(finalPath, "utf8");
-if (written !== text) {
-  throw new Error("entry file does not match the gated word");
+function confirmWritten(path: string, expected: string): void {
+  const onDisk = readFileSync(path, "utf8");
+  if (onDisk !== expected) {
+    throw new Error("verify: published file differs from the gated word");
+  }
+  if (onDisk.endsWith("\n") || onDisk.endsWith("\r")) {
+    throw new Error("verify: published file must not end with a line break");
+  }
+  if (Buffer.byteLength(onDisk, "utf8") !== Buffer.byteLength(expected, "utf8")) {
+    throw new Error("verify: byte length changed during write");
+  }
 }
-if (written.endsWith("\n") || written.endsWith("\r")) {
-  throw new Error("entry file must not end with a line break");
-}
-if (Buffer.byteLength(written, "utf8") !== Buffer.byteLength(text, "utf8")) {
-  throw new Error("entry file byte length does not match the gated word");
-}
+
+const count = checkWord(word);
+const finalPath = writeEntry(word);
+confirmWritten(finalPath, word);
 console.error(
-  `entry written: ${codePoints} chars, ${Buffer.byteLength(text, "utf8")} bytes, status ok`,
+  `entry written: ${count} chars, ${Buffer.byteLength(word, "utf8")} bytes, status ok`,
 );
